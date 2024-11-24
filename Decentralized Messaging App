@@ -1,0 +1,84 @@
+// server.js
+const express = require('express');
+const bodyParser = require('body-parser');
+const crypto = require('crypto');
+
+const app = express();
+const port = 3000;
+
+app.use(bodyParser.json());
+
+// --- Setup Encryption & Onion Routing ---
+const generateKeyAndIV = () => ({
+    key: crypto.randomBytes(32),  // 256-bit key
+    iv: crypto.randomBytes(16),   // 16-byte IV
+});
+
+// Simulate 3 relay nodes (layers)
+const nodes = [generateKeyAndIV(), generateKeyAndIV(), generateKeyAndIV()];
+
+// Function to encrypt through all onion layers
+function onionEncrypt(message) {
+    let encryptedData = message;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+        const { key, iv } = nodes[i];
+        const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+        encryptedData = cipher.update(encryptedData, 'utf8', 'hex') + cipher.final('hex');
+        encryptedData = iv.toString('hex') + encryptedData;  // Prepend IV for each layer
+    }
+    return encryptedData;
+}
+
+// Function to decrypt through all onion layers
+function onionDecrypt(encryptedData) {
+    let data = encryptedData;
+    for (let i = 0; i < nodes.length; i++) {
+        const { key } = nodes[i];
+        const iv = Buffer.from(data.slice(0, 32), 'hex');  // Extract IV (32 hex characters = 16 bytes)
+        const encrypted = data.slice(32);  // Remove IV from data
+        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+        data = decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
+    }
+    return data;
+}
+
+// --- Mock $ANYONE Token Reward ---
+function rewardUser(userAddress, amount) {
+    // Placeholder for blockchain interaction logic
+    console.log(`Rewarding ${userAddress} with ${amount} $ANYONE tokens.`);
+    return { status: 'Success', user: userAddress, reward: amount };
+}
+
+// --- Express Routes ---
+app.post('/send', (req, res) => {
+    const { message, recipient, userAddress } = req.body;
+    
+    // Encrypt the message through onion routing
+    const onionEncrypted = onionEncrypt(message);
+    
+    // Simulate message relay and reward logic
+    console.log(`Message sent to ${recipient} via onion routing.`);
+    const reward = rewardUser(userAddress, 10);  // Reward user for sending the message
+    
+    res.send({ 
+        status: 'Message sent!',
+        encryptedMessage: onionEncrypted,
+        reward
+    });
+});
+
+// Route to simulate receiving and decrypting a message
+app.post('/receive', (req, res) => {
+    const { encryptedMessage } = req.body;
+    const decryptedMessage = onionDecrypt(encryptedMessage);
+    
+    res.send({ 
+        status: 'Message received!',
+        decryptedMessage
+    });
+});
+
+// --- Start Server ---
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+});
